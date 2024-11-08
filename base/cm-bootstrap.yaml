@@ -1,0 +1,65 @@
+apiVersion: v1
+kind: "ConfigMap"
+metadata:
+  name: "bootstrap-mounted-configmap"
+data:
+  01_create_databases.sh: |
+    #!/bin/bash
+    set -e
+    clickhouse client -n <<- 'EOF'
+      CREATE DATABASE IF NOT EXISTS r0;
+      CREATE TABLE IF NOT EXISTS r0.alerts (
+          `date` Date DEFAULT toDate(now()),
+          `datetime` DateTime DEFAULT now(),
+          `timestamp` DateTime64(3) DEFAULT now() CODEC(Delta(4), ZSTD(1)),
+          `startsAt` DateTime64(3),
+          `endsAt` DateTime64(3),
+          `updatedAt` DateTime64(3),
+          `status.inhibitedBy` Array(String),
+          `status.silencedBy` String,
+          `status.state` LowCardinality(String),
+          `annotations.summary` String,
+          `annotations.dashboard` String,
+          `annotations.link` String,
+          `fingerprint` String,
+          `receivers` Array(String),
+          `labelsmap` Map(String, String),
+          `labels.alertname` String,
+          `labels.component` String,
+          `labels.service` String,
+          `labels.instance` String,
+          `labels.job` String,
+          `labels.metal` String,
+          `labels.notify` String,
+          `labels.priority` String,
+          `labels.prometheus` String,
+          `labels.region` String,
+          `labels.severity` String
+      )
+      ENGINE = MergeTree
+      PARTITION BY toStartOfHour(datetime)
+      ORDER BY labels.alertname
+      SETTINGS index_granularity = 8192;
+    EOF
+  02_create_table.sh: |
+    #!/bin/bash
+    set -e
+    clickhouse client -n <<- 'EOF'
+      CREATE DATABASE IF NOT EXISTS r0;
+      CREATE TABLE IF NOT EXISTS r0.silences (
+          `date` Date DEFAULT toDate(now()),
+          `datetime` DateTime DEFAULT now(),
+          `id` String,
+          `status.state` LowCardinality(String),
+          `updatedAt` DateTime64(3),
+          `startsAt` DateTime64(3),
+          `createdBy` LowCardinality(String),
+          `endsAt` DateTime64(3),
+          `matchers` Map(String, String),
+          `comment` String
+      )
+      ENGINE = ReplacingMergeTree
+      PARTITION BY toStartOfHour(datetime)
+      ORDER BY (id, startsAt, endsAt)
+      SETTINGS index_granularity = 8192;
+    EOF

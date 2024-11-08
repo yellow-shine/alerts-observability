@@ -2,9 +2,12 @@ apiVersion: "clickhouse.altinity.com/v1"
 kind: "ClickHouseInstallation"
 metadata:
   name: "clickhouse"
-  namespace: "alerts-analysis"
 spec:
   configuration:
+    profiles:
+      default/input_format_import_nested_json: 1
+      default/output_format_json_array_of_rows: 1
+      default/date_time_input_format: best_effort
     users:
       # printf 'test_password' | sha256sum
       test_user/password_sha256_hex: 10a6e6cc8311a3e2bcc09bf6c199adecd5dd59408c343e926b129c4914f3cb01
@@ -30,6 +33,16 @@ spec:
                   mountPath: /var/lib/clickhouse
                 - name: log-storage
                   mountPath: /var/log/clickhouse-server
+                - name: bootstrap-configmap-volume
+                  mountPath: /docker-entrypoint-initdb.d
+              env:
+                - name: CLICKHOUSE_ALWAYS_RUN_INITDB_SCRIPTS
+                  value: "true"
+          volumes:
+            - name: bootstrap-configmap-volume
+              configMap:
+                name: bootstrap-mounted-configmap
+
     volumeClaimTemplates:
       - name: data-storage
         spec:

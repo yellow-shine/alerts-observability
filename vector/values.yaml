@@ -1,0 +1,24 @@
+role: Aggregator
+
+serviceHeadless:
+  enabled: false
+
+service:
+  ports:
+  - name: prom-exporter
+    port: 9090
+    protocol: TCP
+  - name: webhook
+    port: 8888
+    protocol: TCP
+
+containerPorts:
+- name: prom-exporter
+  containerPort: 9090
+  protocol: TCP
+- name: webhook
+  containerPort: 8888
+  protocol: TCP
+
+persistence:
+  enabled: true

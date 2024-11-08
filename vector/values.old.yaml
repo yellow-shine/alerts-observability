@@ -1,0 +1,51 @@
+containerPorts:
+- containerPort: 9090
+  name: prom-exporter
+  protocol: TCP
+- containerPort: 8888
+  name: webhook
+  protocol: TCP
+customConfig:
+  data_dir: /data
+  sinks:
+    emit_file:
+      buffer:
+        max_events: 1
+      encoding:
+        codec: json
+      inputs:
+      - webhook
+      path: /data/vector-%Y-%m-%d.log
+      type: file
+    emit_syslog:
+      encoding:
+        codec: json
+      inputs:
+      - webhook
+      type: console
+  sources:
+    webhook:
+      address: 0.0.0.0:8888
+      encoding: json
+      headers:
+      - User-Agent
+      method: POST
+      path: /
+      path_key: path
+      query_parameters:
+      - application
+      strict_path: true
+      type: http_server
+persistence:
+  enabled: true
+role: Aggregator
+service:
+  ports:
+  - name: prom-exporter
+    port: 9090
+    protocol: TCP
+  - name: webhook
+    port: 8888
+    protocol: TCP
+serviceHeadless:
+  enabled: false

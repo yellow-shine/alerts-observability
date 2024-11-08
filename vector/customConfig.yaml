@@ -1,0 +1,203 @@
+customConfig:
+  data_dir: /data
+
+  sources:
+    webhook:
+      type: http_server
+      address: "0.0.0.0:8888"
+      headers: 
+        - User-Agent
+      query_parameters: 
+        - application
+      path: "/"
+      strict_path: true
+      path_key: path
+      method: POST
+      encoding: json
+
+    alerts:
+      type: http_client
+      endpoint: "http://alertmanager-main.monitoring.svc.cluster.local:9093/api/v2/alerts"
+      method: GET
+      decoding:
+        codec: json
+      scrape_interval_secs: 60
+      headers:
+        Accept: 
+          - application/json
+          - text/plain
+
+    silences:
+      type: http_client
+      endpoint: "http://alertmanager-main.monitoring.svc.cluster.local:9093/api/v2/silences"
+      method: GET
+      decoding:
+        codec: json
+      scrape_interval_secs: 60
+      headers:
+        Accept: 
+          - application/json
+          - text/plain
+
+  transforms:
+    webhook_transform:
+      inputs: 
+        - webhook
+      type: remap
+      source: |
+        . = unnest!(.alerts)
+        . = map_values(.) -> |v| {
+          value = v.alerts
+          del(v.alerts)
+          value.endsAt = parse_timestamp!(value.endsAt, format: "%Y-%m-%dT%H:%M:%S%.fZ")
+          value.endsAt = to_unix_timestamp(value.endsAt, "milliseconds")
+          value.startsAt = parse_timestamp!(value.startsAt, format: "%Y-%m-%dT%H:%M:%S%.fZ")
+          value.startsAt = to_unix_timestamp(value.startsAt, "milliseconds")
+          value.user_agent = del(value."User-Agent")
+          value.status.state = del(value.status)
+
+          value.labelskv = encode_key_value!(value.labels)
+
+          labelsmap = value.labels
+          labelsmap_encoded = encode_json(labelsmap)
+          value.md5 = md5(labelsmap_encoded)
+
+          value.source = "webhook"
+          flatten(value)
+        }
+
+    webhook_transform2:
+      inputs: 
+        - webhook_transform
+      type: remap
+      source: |
+        .labelsmap = parse_key_value!(.labelskv)
+
+    vrl:
+      inputs: 
+        - alerts
+      type: remap
+      source: "# to split the multiline event to small events"
+
+    vrl2:
+      inputs: 
+        - vrl
+      type: remap
+      source: |
+        .timestamp = parse_timestamp!(.timestamp, format: "%Y-%m-%dT%H:%M:%S%.fZ")
+        .timestamp = to_unix_timestamp(.timestamp, "milliseconds")
+        
+
+        .rec = del(.receivers)
+        .receivers = []
+        for_each(array!(.rec)) -> |_index, r| {
+            .rid = get!(.rec, [to_int(_index)])
+            .receivers = push(.receivers, .rid.name )
+        }
+        del(.rec)
+        del(.rid)
+
+        .labelskv = encode_key_value!(.labels)
+        labelsmap = .labels
+        . = flatten(.)
+        labelsmap_encoded = encode_json(labelsmap)
+        .md5 = md5(labelsmap_encoded)
+
+        if is_empty(array!(."status.silencedBy")) {
+          del(.status.silencedBy)
+          ."status.silencedBy" = ""
+        } else {
+          . = unnest!(."status.silencedBy")
+        }
+
+    silences_remap:
+      inputs: 
+        - silences
+      type: remap
+      source: |
+        ts_now = to_unix_timestamp(now(), unit: "milliseconds")
+        
+        .drop = false
+        obj = {}
+        .match = {}
+        for_each(array!(.matchers)) -> |_index, value| {
+            .mid = get!(.matchers, [to_int(_index)])
+            eq = ""
+            reg = ""
+            if to_bool!(.mid.isEqual) {
+                eq = "="
+            } else {
+                eq = "!="
+            }
+            if to_bool!(.mid.isRegex) {
+                reg = "~"
+            }
+            n = .mid.name
+            v, err = eq + reg + .mid.value
+            .match |= object(set!(obj, [.mid.name], v))
+            del(.mid)
+        }
+        del( .matchers )
+        matchers = del(.match )
+        . = flatten(.)
+        .matchers = matchers
+        .matchers_string = encode_key_value(.matchers)
+
+    silences_filter:
+      type: filter
+      inputs: 
+        - silences_remap
+      condition: ".drop == false"
+
+  sinks:
+    silences_clickhouse:
+      inputs: 
+        - silences_filter
+      type: clickhouse
+      database: r0
+      endpoint: "http://chi-clickhouse-clickhouse-0-0-0.chi-clickhouse-clickhouse-0-0.alerts-observability.svc.cluster.local:8123"
+      table: silences
+      compression: gzip
+      tls:
+        verify_hostname: false
+      auth:
+        user: test_user
+        password: "test_password"
+        strategy: basic
+      batch:
+        timeout_secs: 30
+      skip_unknown_fields: true
+
+    clickhouse:
+      inputs: 
+        - webhook_transform2
+        - vrl2
+      type: clickhouse
+      database: r0
+      endpoint: "http://chi-clickhouse-clickhouse-0-0-0.chi-clickhouse-clickhouse-0-0.alerts-observability.svc.cluster.local:8123"
+      table: alerts
+      compression: gzip
+      tls:
+        verify_hostname: false
+      auth:
+        user: test_user
+        password: "test_password"
+        strategy: basic
+      batch:
+        timeout_secs: 10
+
+    console:
+      inputs: 
+        - webhook
+      type: console
+      encoding:
+        codec: json
+      target: stdout 
+
+    emit_file:
+      inputs:
+        - "webhook"
+      type: "file"
+      encoding:
+        codec: "json"
+      path: "/data/vector-%Y-%m-%d.log"
