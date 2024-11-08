@@ -1,0 +1,47 @@
+apiVersion: "clickhouse.altinity.com/v1"
+kind: "ClickHouseInstallation"
+metadata:
+  name: "clickhouse"
+  namespace: "alerts-analysis"
+spec:
+  configuration:
+    users:
+      # printf 'test_password' | sha256sum
+      test_user/password_sha256_hex: 10a6e6cc8311a3e2bcc09bf6c199adecd5dd59408c343e926b129c4914f3cb01
+      test_user/networks/ip:
+        - 0.0.0.0/0
+    clusters:
+      - name: "clickhouse"
+        templates:
+          podTemplate: pod-template
+        layout:
+          shardsCount: 1
+          replicasCount: 1
+
+  templates:
+    podTemplates:
+      - name: pod-template
+        spec:
+          containers:
+            - name: clickhouse
+              image: clickhouse/clickhouse-server:tag
+              volumeMounts:
+                - name: data-storage
+                  mountPath: /var/lib/clickhouse
+                - name: log-storage
+                  mountPath: /var/log/clickhouse-server
+    volumeClaimTemplates:
+      - name: data-storage
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi
+      - name: log-storage
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi 
