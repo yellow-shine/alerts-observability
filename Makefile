@@ -55,13 +55,6 @@ apply-base:
 	$(KUBECTL) apply -k base  -n $(NAMESPACE)
 	# $(KUBECTL) rollout restart sts/chi-clickhouse-clickhouse-0-0 -n $(NAMESPACE)
 
-.PHONY: install-uat
-install-uat: install-operator
-	$(KUBECTL) apply -k overlays/uat -n $(NAMESPACE)
-
-.PHONY: uninstall-uat
-uninstall-uat:
-	$(KUBECTL) delete -k overlays/uat -n $(NAMESPACE)
 
 .PHONY: get-pods
 get-pods:
@@ -79,11 +72,6 @@ uninstall-base:
 dev-watch:
 	$(KUBECTL) get pods -n $(NAMESPACE) -w
 
-.PHONY: uat-watch
-uat-watch:
-	$(KUBECTL) get pods -n $(NAMESPACE) -w
-
-
 
 .PHONY: install-vector
 install-vector:
@@ -91,3 +79,17 @@ install-vector:
 
 vector-template:
 	make -C vector template HELM="$(HELM)"
+# ---------------------------
+
+.PHONY: install-uat
+install-uat: install-operator
+	$(KUBECTL) apply -k overlays/uat -n $(NAMESPACE)
+
+.PHONY: uninstall-uat
+uninstall-uat:
+	$(KUBECTL) delete -k overlays/uat -n $(NAMESPACE)
+
+.PHONY: uat-watch
+uat-watch:
+	$(KUBECTL) get pods -n $(NAMESPACE) -w
+
